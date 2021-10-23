@@ -49,13 +49,9 @@ async def on_reaction_add(reaction,user):
       await reaction.message.remove_reaction(reaction,user)
   else:
     if focusMessage != 0:
-      print("HERE")
       if "craig" in [y.name.lower() for y in user.roles]:
-        print("HERE1")
         if reaction.message.id == focusMessage:
-          print("HERE2")
           if reaction.emoji == chosenEmoji:
-            print("HERE3")
             await reaction.message.channel.send("vote count : "+str(reaction.count))
       else:
         await reaction.message.remove_reaction(reaction,user)
