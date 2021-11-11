@@ -53,8 +53,10 @@ async def sendToChannel(preferenceObject,messageObject):
   channel = client.get_channel(preferenceObject["resultChannel"])
   currentChannel = client.get_channel(messageObject["channelID"])
   msg = await currentChannel.fetch_message(messageObject["messageID"])
-  msg = msg.content
-  embed = discord.Embed(title="Proposal results",description=msg)
+  msgContent = msg.content
+
+      
+  embed = discord.Embed(title="Proposal results",description=msgContent)
   embed.add_field(name="Voting Method", value=preferenceObject["votingMethod"], inline=True)
   embed.add_field(name="In Favor",value=messageObject["positiveEmoji"])
   embed.add_field(name="Against",value=messageObject["negativeEmoji"])
@@ -63,8 +65,37 @@ async def sendToChannel(preferenceObject,messageObject):
   else:
     result = "Failed"
   embed.add_field(name="Result",value=result)
-  print(preferenceObject)
-  print(messageObject)
+  memberCounts = totalMembers(currentChannel,preferenceObject["roles"])
+  embed.add_field(name="Stats",value="Total Members and Votes by Role",inline=False)
+  
+  positiveReactions = [0 for a in preferenceObject["roles"]]
+
+  negativeReactions = [0 for a in preferenceObject["roles"]]
+  
+  for currReaction in msg.reactions:
+    if currReaction.emoji==preferenceObject["positiveEmoji"]:
+      currReactionUser = await currReaction.users().flatten()
+      for user in currReactionUser:
+        user_roles = [role.id for role in user.roles];
+        for i in range(len(preferenceObject["roles"])):
+          if preferenceObject["roles"][i] in user_roles:
+            positiveReactions[i]+=1;
+    if currReaction.emoji==preferenceObject["negativeEmoji"]:
+      currReactionUser = await currReaction.users().flatten()
+      for user in currReactionUser:
+        user_roles = [role.id for role in user.roles];
+        for i in range(len(preferenceObject["roles"])):
+          if preferenceObject["roles"][i] in user_roles:
+            negativeReactions[i]+=1;
+
+
+
+  print(negativeReactions);
+  print(positiveReactions); 
+  for i in range(len(preferenceObject["roles"])):
+    embed.add_field(name=get(currentChannel.guild. roles, id=preferenceObject["roles"][i]),value = memberCounts[i],inline = False)
+    embed.add_field(name="Voted Positive",value = positiveReactions[i],inline = True)
+    embed.add_field(name="Voted Negative",value = negativeReactions[i],inline = True)
   await channel.send(embed=embed)
   
 
@@ -80,12 +111,29 @@ def members(ctx,roles):
     uniquemems = unique(mems)
     count = len(uniquemems)
     return count
+
+def reactionByRole(reaction, role):
+  # for member in reaction.members:
+    # if 
+  return True;
+
+def totalMembers(ctx,roles):
+  server = ctx.guild
+  mems = []
+    
+  for role_id in roles:
+    roleCount = 0
+    for member in server.members:
+      member_role_ids = [role.id for role in member.roles]
+      if role_id in member_role_ids:
+        roleCount += 1
+    mems.append(roleCount)
+  return mems
     
 intents = discord.Intents.default()
 intents.members = True
 
 client = commands.Bot(intents=intents,command_prefix="!")
-
 
 
 
@@ -209,12 +257,23 @@ async def on_message(message):
   messageReactions[message.id]["positiveEmoji"]=0;
   messageReactions[message.id]["negativeEmoji"]=0;
   messageReactions[message.id]["channelID"]=message.channel.id;
+  await message.add_reaction(channelPreferences[message.channel.id]["positiveEmoji"])
+  await message.add_reaction(channelPreferences[message.channel.id]["negativeEmoji"])
 
   await client.process_commands(message)
   
 
 @client.event
 async def on_reaction_add(reaction,user):
+  await on_reaction_change(reaction,user);
+
+@client.event
+async def on_reaction_remove(reaction,user):
+  await on_reaction_change(reaction,user);
+
+async def on_reaction_change(reaction,user):
+  if user == client.user:
+    return
   global channelPreferences,messageReactions;
   preference={}
   try:
@@ -243,19 +302,28 @@ async def on_reaction_add(reaction,user):
     await reaction.message.remove_reaction(reaction,user)
     return;
   if(reaction.emoji==preference["positiveEmoji"]):
-    messageReactions[reaction.message.id]["positiveEmoji"]=reaction.count;
+    await reaction.message.remove_reaction(preference["negativeEmoji"],user)
+    # messageReactions[reaction.message.id]["positiveEmoji"]=reaction.count;
     
   elif(reaction.emoji==preference["negativeEmoji"]):
-    
-    messageReactions[reaction.message.id]["negativeEmoji"]=reaction.count;
+    await reaction.message.remove_reaction(preference["positiveEmoji"],user)
+    # messageReactions[reaction.message.id]["negativeEmoji"]=reaction.count;
   else:
     await reaction.message.remove_reaction(reaction,user)
+  
+  for cuRe in reaction.message.reactions:
+    #-1 to remove bot's reaction
+    if(cuRe.emoji==preference["positiveEmoji"]):
+      messageReactions[reaction.message.id]["positiveEmoji"]=cuRe.count-1;
+    if(cuRe.emoji==preference["negativeEmoji"]):
+      messageReactions[reaction.message.id]["negativeEmoji"]=cuRe.count-1;
 
   if(preference["votingMethod"]=="Quorum"):
     #TODO Get total eligible Members
     totalEligibleMembers= max(1,members(reaction, preference["roles"]));
-    positivePercent=100*messageReactions[reaction.message.id]["positiveEmoji"]/totalEligibleMembers
-    negativePercent = 100*messageReactions[reaction.message.id]["negativeEmoji"]/totalEligibleMembers
+    # print(totalMembers(reaction, preference["roles"]))
+    positivePercent=100*(messageReactions[reaction.message.id]["positiveEmoji"])/totalEligibleMembers
+    negativePercent = 100*(messageReactions[reaction.message.id]["negativeEmoji"])/totalEligibleMembers
     
     preference["totalEligibleMembers"] = totalEligibleMembers
     preference["negativePercent"] = negativePercent
@@ -264,7 +332,6 @@ async def on_reaction_add(reaction,user):
       messageReactions[reaction.message.id]["messageID"]=reaction.message.id;
       await sendToChannel(preference,messageReactions[reaction.message.id]);
       messageReactions[reaction.message.id]["isEnded"]=True;
-   
   
 @tasks.loop(seconds=1)
 async def slow_count():
