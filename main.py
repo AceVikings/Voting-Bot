@@ -78,8 +78,9 @@ async def sendToChannel(preferenceObject,messageObject):
       for user in currReactionUser:
         user_roles = [role.id for role in user.roles];
         for i in range(len(preferenceObject["roles"])):
+          #We check what role does the user have
           if preferenceObject["roles"][i] in user_roles:
-            positiveReactions[i]+=1;
+            positiveReactions[i]+=1; #based on the role, we can add a multiplier as well.
     if currReaction.emoji==preferenceObject["negativeEmoji"]:
       currReactionUser = await currReaction.users().flatten()
       for user in currReactionUser:
@@ -90,8 +91,6 @@ async def sendToChannel(preferenceObject,messageObject):
 
 
 
-  print(negativeReactions);
-  print(positiveReactions); 
   for i in range(len(preferenceObject["roles"])):
     embed.add_field(name=get(currentChannel.guild. roles, id=preferenceObject["roles"][i]),value = memberCounts[i],inline = False)
     embed.add_field(name="Voted Positive",value = positiveReactions[i],inline = True)
@@ -141,6 +140,13 @@ client = commands.Bot(intents=intents,command_prefix="!")
 @client.event
 async def on_ready():
   print("we have logged in as{0.user}".format(client))
+
+@client.command()
+async def reset(ctx):
+  global channelPreferences
+  channelPreferences[ctx.channel.id] = {}
+  return
+
 
 @client.command()
 async def sv(ctx):
@@ -251,7 +257,7 @@ async def on_message(message):
   except:
     await client.process_commands(message)
     return;
-  print(message.content);
+  
   messageReactions[message.id]=dict()
   messageReactions[message.id]["startTime"]=datetime.now();
   messageReactions[message.id]["positiveEmoji"]=0;
@@ -265,13 +271,13 @@ async def on_message(message):
 
 @client.event
 async def on_reaction_add(reaction,user):
-  await on_reaction_change(reaction,user);
+  await on_reaction_change(reaction,user,"add");
 
 @client.event
 async def on_reaction_remove(reaction,user):
-  await on_reaction_change(reaction,user);
+  await on_reaction_change(reaction,user,"remove");
 
-async def on_reaction_change(reaction,user):
+async def on_reaction_change(reaction,user,action):
   if user == client.user:
     return
   global channelPreferences,messageReactions;
@@ -288,10 +294,10 @@ async def on_reaction_change(reaction,user):
     return;
   if(preference["votingMethod"]=="Time"):
     if("startTime" not in messageReactions[reaction.message.id]):
-      print("Time now is set")
+      
       messageReactions[reaction.message.id]["startTime"]=datetime.now();
     if(hasTimePassed(messageReactions[reaction.message.id]["startTime"],preference["time"])):
-      print("time Ended");
+      
       messageReactions[reaction.message.id]["isEnded"]=True;
       messageReactions[reaction.message.id]["messageID"]=reaction.message.id;
       await sendToChannel(preference,messageReactions[reaction.message.id]);
@@ -302,11 +308,13 @@ async def on_reaction_change(reaction,user):
     await reaction.message.remove_reaction(reaction,user)
     return;
   if(reaction.emoji==preference["positiveEmoji"]):
-    await reaction.message.remove_reaction(preference["negativeEmoji"],user)
+    if(action=="add"):
+      await reaction.message.remove_reaction(preference["negativeEmoji"],user)
     # messageReactions[reaction.message.id]["positiveEmoji"]=reaction.count;
     
   elif(reaction.emoji==preference["negativeEmoji"]):
-    await reaction.message.remove_reaction(preference["positiveEmoji"],user)
+    if(action=="add"):
+      await reaction.message.remove_reaction(preference["positiveEmoji"],user)
     # messageReactions[reaction.message.id]["negativeEmoji"]=reaction.count;
   else:
     await reaction.message.remove_reaction(reaction,user)
@@ -321,7 +329,6 @@ async def on_reaction_change(reaction,user):
   if(preference["votingMethod"]=="Quorum"):
     #TODO Get total eligible Members
     totalEligibleMembers= max(1,members(reaction, preference["roles"]));
-    # print(totalMembers(reaction, preference["roles"]))
     positivePercent=100*(messageReactions[reaction.message.id]["positiveEmoji"])/totalEligibleMembers
     negativePercent = 100*(messageReactions[reaction.message.id]["negativeEmoji"])/totalEligibleMembers
     
